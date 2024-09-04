@@ -66,8 +66,12 @@
         </div>
       </div>
     </div>
-
-    <div v-if="jsonData && !isPromptingForAnswer">
+    <div
+      v-if="jsonData && !isPromptingForAnswer && currentQuestion.start_lazy && startTime == null"
+      @click="startCountDown"
+      class="overlay-full"
+    ></div>
+    <div v-if="jsonData && !isPromptingForAnswer && startTime">
       <div class="overlay left-overlay" @click="peekPrevious"></div>
       <div class="overlay right-overlay" @click="peekNext"></div>
     </div>
@@ -140,6 +144,15 @@ body {
   right: 20px;
   font-size: 2em;
   color: red;
+}
+.overlay-full {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  cursor: pointer;
+  z-index: 999;
 }
 .overlay {
   position: fixed;
@@ -218,7 +231,8 @@ export default {
       jsonData: null,
       currentQuestionIndex: 0,
       peekIndex: 0,
-      countdown: 0,
+      countdown: '00:00',
+      startTime: null,
       timerInterval: null,
       isPromptingForAnswer: false,
       answerSubmitted: false,
@@ -235,32 +249,76 @@ export default {
     }
   },
   methods: {
+    formatTime(time) {
+      let timeMs = time
+      // Calculate hours, minutes, seconds, and milliseconds
+      const hours = Math.floor(timeMs / 3600000)
+      timeMs %= 3600000
+      const minutes = Math.floor(timeMs / 60000)
+      timeMs %= 60000
+      const seconds = Math.floor(timeMs / 1000)
+      const milliseconds = Math.floor((timeMs % 1000) / 10) // Dividing by 10 to get "nn" format
+
+      // Build the time string dynamically
+      let timeString = ''
+
+      if (hours > 0) {
+        timeString += `${hours.toString().padStart(2, '0')}:`
+      }
+      if (minutes > 0 || hours > 0) {
+        // Show minutes if there are hours, even if minutes are 0
+        timeString += `${minutes.toString().padStart(2, '0')}:`
+      }
+      if (seconds > 0 || minutes > 0 || hours > 0) {
+        // Show seconds if there are minutes or hours
+        timeString += `${seconds.toString().padStart(2, '0')}:`
+      }
+      timeString += milliseconds.toString().padStart(2, '0') // Always show milliseconds
+
+      return timeString
+    },
+    startCountDown() {
+      this.startTime = Date.now()
+    },
     startQuiz(jsonData) {
       this.jsonData = jsonData
       this.answeredQuestions.clear()
       this.peekIndex = 0
       this.countdown_time = this.$refs.timerOptions.getSelectedTime()
+      this.countdown = this.formatTime(this.countdown_time)
       this.did_start = true
       this.startNextQuestion()
     },
     startNextQuestion() {
       this.isPromptingForAnswer = false
       this.answerSubmitted = false
+      this.startCountDown()
       this.answerMessage = ''
-      this.countdown = this.countdown_time
+      if (this.currentQuestion.start_lazy) {
+        this.startTime = null
+      }
 
       if (this.timerInterval) {
         clearInterval(this.timerInterval)
       }
 
       this.timerInterval = setInterval(() => {
-        if (this.countdown > 0) {
-          this.countdown--
-        } else {
-          clearInterval(this.timerInterval)
-          this.isPromptingForAnswer = true
+        if (this.startTime) {
+          const elapsedTime = Date.now() - this.startTime
+          const remainingTime = this.countdown_time - elapsedTime
+          if (remainingTime <= 0) {
+            clearInterval(this.timerInterval)
+            this.countdown = this.formatTime(this.countdown_time)
+            this.isPromptingForAnswer = true
+            if (!this.currentQuestion.possible_solutions && this.currentQuestion.skip_next) {
+              this.nextQuestion()
+            }
+          } else {
+            this.countdown = this.formatTime(remainingTime)
+            console.log(this.countdown)
+          }
         }
-      }, 1000)
+      }, 10)
     },
     submitAnswer(selectedIndex) {
       this.answerSubmitted = true
@@ -300,7 +358,7 @@ export default {
       this.currentQuestionIndex = 0
       this.peekIndex = 0
       this.jsonData = null
-      this.countdown = 0
+      this.startTime = null
       this.isPromptingForAnswer = false
       this.answerSubmitted = false
       this.answeredQuestions.clear()
